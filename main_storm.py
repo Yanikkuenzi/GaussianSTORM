@@ -103,6 +103,11 @@ def get_args_parser():
     parser.add_argument("--subset_ratio", default=1.0, type=float)
     parser.add_argument("--num_workers", default=16, type=int)
     parser.add_argument("--skip_sky_mask", action="store_true", help="skip sky mask loading")
+    # EgoExo4D-specific
+    parser.add_argument("--egoexo_image_root", type=str, default=None,
+                        help="Path to EgoExo4D images: <root>/<scene>/<cam>/frame_*.png")
+    parser.add_argument("--egoexo_annotation_root", type=str, default=None,
+                        help="Path to EgoExo4D annotations: <root>/takes/<scene>/trajectory/gopro_calib.csv")
     # ============= Logging ============= #
     parser.add_argument("--output_dir", default="./work_dirs")
     parser.add_argument("--num_vis_samples", type=int, default=1)
@@ -185,18 +190,32 @@ def main(args):
         if not os.path.exists(val_annotation):
             val_annotation = None
 
-    dataset_train = STORMDataset(
-        data_root=args.data_root,
-        annotation_txt_file_list=train_annotation,
-        target_size=args.input_size,
-        num_context_timesteps=args.num_context_timesteps,
-        num_target_timesteps=args.num_target_timesteps,
-        timespan=args.timespan,
-        num_max_cams=args.num_max_cameras,
-        load_depth=args.load_depth,
-        load_flow=args.load_flow,
-        skip_sky_mask=args.skip_sky_mask,
-    )
+    if args.dataset == "egoexo":
+        from storm.dataset.egoexo_dataset import EgoExoDataset, EgoExoDatasetEval
+
+        dataset_train = EgoExoDataset(
+            image_root=args.egoexo_image_root,
+            annotation_root=args.egoexo_annotation_root,
+            scene_names_file=train_annotation,
+            target_size=args.input_size,
+            num_context_timesteps=args.num_context_timesteps,
+            num_target_timesteps=args.num_target_timesteps,
+            num_max_cams=args.num_max_cameras,
+            timespan=args.timespan,
+        )
+    else:
+        dataset_train = STORMDataset(
+            data_root=args.data_root,
+            annotation_txt_file_list=train_annotation,
+            target_size=args.input_size,
+            num_context_timesteps=args.num_context_timesteps,
+            num_target_timesteps=args.num_target_timesteps,
+            timespan=args.timespan,
+            num_max_cams=args.num_max_cameras,
+            load_depth=args.load_depth,
+            load_flow=args.load_flow,
+            skip_sky_mask=args.skip_sky_mask,
+        )
     sampler_train = InfiniteSampler(sample_count=len(dataset_train), shuffle=True, seed=seed)
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train,
@@ -209,47 +228,80 @@ def main(args):
     )
 
     if val_annotation is not None:
-        dataset_val = STORMDataset(
-            data_root=args.data_root,
-            annotation_txt_file_list=val_annotation,
-            target_size=args.input_size,
-            num_context_timesteps=args.num_context_timesteps,
-            num_target_timesteps=args.num_target_timesteps,
-            timespan=args.timespan,
-            num_max_cams=args.num_max_cameras,
-            load_depth=args.load_depth,
-            load_flow=args.load_flow,
-            skip_sky_mask=args.skip_sky_mask,
-        )
-        dataset_eval = STORMDatasetEval(
-            data_root=args.data_root,
-            annotation_txt_file_list=val_annotation,
-            target_size=args.input_size,
-            num_context_timesteps=args.num_context_timesteps,
-            num_target_timesteps=args.num_target_timesteps,
-            timespan=args.timespan,
-            num_max_cams=args.num_max_cameras,
-            load_depth=args.load_depth,
-            load_flow=args.load_flow,
-            load_dynamic_mask=True,
-            load_ground_label=args.load_ground,
-            skip_sky_mask=args.skip_sky_mask,
-        )
-        dataset_eval_flow = STORMDatasetEval(
-            data_root=args.data_root,
-            annotation_txt_file_list=val_annotation,
-            target_size=args.input_size,
-            num_context_timesteps=args.num_context_timesteps,
-            num_target_timesteps=args.num_target_timesteps,
-            timespan=args.timespan,
-            num_max_cams=args.num_max_cameras,
-            load_depth=args.load_depth,
-            load_flow=args.load_flow,
-            load_dynamic_mask=False,
-            load_ground_label=args.load_ground,
-            return_context_as_target=True,
-            skip_sky_mask=args.skip_sky_mask,
-        )
+        if args.dataset == "egoexo":
+            dataset_val = EgoExoDataset(
+                image_root=args.egoexo_image_root,
+                annotation_root=args.egoexo_annotation_root,
+                scene_names_file=val_annotation,
+                target_size=args.input_size,
+                num_context_timesteps=args.num_context_timesteps,
+                num_target_timesteps=args.num_target_timesteps,
+                num_max_cams=args.num_max_cameras,
+                timespan=args.timespan,
+            )
+            dataset_eval = EgoExoDatasetEval(
+                image_root=args.egoexo_image_root,
+                annotation_root=args.egoexo_annotation_root,
+                scene_names_file=val_annotation,
+                target_size=args.input_size,
+                num_context_timesteps=args.num_context_timesteps,
+                num_target_timesteps=args.num_target_timesteps,
+                num_max_cams=args.num_max_cameras,
+                timespan=args.timespan,
+            )
+            dataset_eval_flow = EgoExoDatasetEval(
+                image_root=args.egoexo_image_root,
+                annotation_root=args.egoexo_annotation_root,
+                scene_names_file=val_annotation,
+                target_size=args.input_size,
+                num_context_timesteps=args.num_context_timesteps,
+                num_target_timesteps=args.num_target_timesteps,
+                num_max_cams=args.num_max_cameras,
+                timespan=args.timespan,
+                return_context_as_target=True,
+            )
+        else:
+            dataset_val = STORMDataset(
+                data_root=args.data_root,
+                annotation_txt_file_list=val_annotation,
+                target_size=args.input_size,
+                num_context_timesteps=args.num_context_timesteps,
+                num_target_timesteps=args.num_target_timesteps,
+                timespan=args.timespan,
+                num_max_cams=args.num_max_cameras,
+                load_depth=args.load_depth,
+                load_flow=args.load_flow,
+                skip_sky_mask=args.skip_sky_mask,
+            )
+            dataset_eval = STORMDatasetEval(
+                data_root=args.data_root,
+                annotation_txt_file_list=val_annotation,
+                target_size=args.input_size,
+                num_context_timesteps=args.num_context_timesteps,
+                num_target_timesteps=args.num_target_timesteps,
+                timespan=args.timespan,
+                num_max_cams=args.num_max_cameras,
+                load_depth=args.load_depth,
+                load_flow=args.load_flow,
+                load_dynamic_mask=True,
+                load_ground_label=args.load_ground,
+                skip_sky_mask=args.skip_sky_mask,
+            )
+            dataset_eval_flow = STORMDatasetEval(
+                data_root=args.data_root,
+                annotation_txt_file_list=val_annotation,
+                target_size=args.input_size,
+                num_context_timesteps=args.num_context_timesteps,
+                num_target_timesteps=args.num_target_timesteps,
+                timespan=args.timespan,
+                num_max_cams=args.num_max_cameras,
+                load_depth=args.load_depth,
+                load_flow=args.load_flow,
+                load_dynamic_mask=False,
+                load_ground_label=args.load_ground,
+                return_context_as_target=True,
+                skip_sky_mask=args.skip_sky_mask,
+            )
         sampler = NoPaddingDistributedSampler(
             dataset_eval,
             num_replicas=world_size,

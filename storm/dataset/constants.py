@@ -13,6 +13,7 @@ DATASETS = {
     "waymo": {"opencv2dataset": opencv2waymo, "canonical_to_flu": np.eye(4)},
     "nuscenes": {"opencv2dataset": np.eye(4), "canonical_to_flu": opencv2waymo},
     "argoverse2": {"opencv2dataset": np.eye(4), "canonical_to_flu": opencv2waymo},
+    "egoexo": {"opencv2dataset": np.eye(4), "canonical_to_flu": opencv2waymo},
 }
 
 DATASET_DICT = {
@@ -100,6 +101,22 @@ DATASET_DICT = {
             6: ["0"],
             7: ["0"],
         },
+    },
+    "egoexo": {
+        "size": [160, 288],
+        "temporal": True,
+        "num_context_timesteps": 4,
+        "num_target_timesteps": 4,
+        "annotation_txt_file_train": "scene_list/egoexo_train.txt",
+        "annotation_txt_file_val": "scene_list/egoexo_val.txt",
+        "camera_list": {
+            1: ["cam01"],
+            3: ["cam02", "cam01", "cam03"],
+            5: ["cam02", "cam01", "cam03", "cam04"],
+            6: ["cam02", "cam01", "cam03", "cam04"],
+            7: ["cam02", "cam01", "cam03", "cam04"],
+        },
+        "ref_camera": "cam01",
     },
     "dl3dv": {
         "size": [160, 288],
