@@ -69,7 +69,6 @@ def evaluate(dataloader, model, args, name_str=None):
     total_psnr, total_ssim, total_depth_rmse = 0.0, 0.0, 0.0
     total_occupied_psnr, total_occupied_ssim = 0.0, 0.0
     total_dynamic_psnr, total_dynamic_ssim, total_dynamic_rmse = 0.0, 0.0, 0.0
-    # test_indices = [1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19]
     printed = False
     pbar = tqdm(dataloader, desc="Evaluating")
     for data_dict in pbar:
@@ -86,6 +85,11 @@ def evaluate(dataloader, model, args, name_str=None):
             logger.info(f"Input indices: {input_indices}")
             logger.info(f"Test indices: {test_indices}")
             printed = True
+
+        has_depth = "target_depth" in target_dict
+        has_sky_mask = "target_sky_masks" in target_dict
+        has_dynamic_mask = "target_dynamic_masks" in target_dict
+
         pred_dict = model(input_dict)
         # evaluate on real target images:
         # b, t, v, c, h, w
@@ -96,29 +100,31 @@ def evaluate(dataloader, model, args, name_str=None):
         height, width = gt_rgb.shape[-3], gt_rgb.shape[-2]
         # btv, h, w, c
         gt_rgb = gt_rgb.reshape(-1, height, width, 3)
-        gt_depth = target_dict["target_depth"][:, test_indices].view(-1, height, width)
-        gt_sky_mask = target_dict["target_sky_masks"][:, test_indices].view(-1, height, width)
-        occupied_mask = (gt_sky_mask == 0).bool()
-        if "target_dynamic_masks" in target_dict:
+
+        if has_depth:
+            gt_depth = target_dict["target_depth"][:, test_indices].view(-1, height, width)
+            valid_depth_mask = gt_depth > 0.0
+        if has_sky_mask:
+            gt_sky_mask = target_dict["target_sky_masks"][:, test_indices].view(-1, height, width)
+            occupied_mask = (gt_sky_mask == 0).bool()
+        if has_dynamic_mask:
             gt_dynamic_mask = target_dict["target_dynamic_masks"][:, test_indices]
             gt_dynamic_mask = gt_dynamic_mask.view(-1, height, width)
             dynamic_mask = gt_dynamic_mask.bool()
-        else:
-            dynamic_mask = torch.ones_like(occupied_mask)
-        valid_depth_mask = gt_depth > 0.0
 
         rendered_results = pred_dict["render_results"]
         pred_rgb = rendered_results[rendered_results["rgb_key"]][:, test_indices] * std + mean
         pred_rgb = pred_rgb.reshape(-1, height, width, 3).detach()
         pred_rgb = torch.clamp(pred_rgb, 0, 1)
-        if rendered_results["decoder_depth_key"] is None:
-            pred_depth = rendered_results[rendered_results["depth_key"]][:, test_indices].view(
-                -1, height, width
-            )
-        else:
-            pred_depth = rendered_results[rendered_results["decoder_depth_key"]][
-                :, test_indices
-            ].view(-1, height, width)
+        if has_depth:
+            if rendered_results["decoder_depth_key"] is None:
+                pred_depth = rendered_results[rendered_results["depth_key"]][:, test_indices].view(
+                    -1, height, width
+                )
+            else:
+                pred_depth = rendered_results[rendered_results["decoder_depth_key"]][
+                    :, test_indices
+                ].view(-1, height, width)
         psnrs, ssim_scores, depth_rmses = [], [], []
         occupied_ssims, occupied_psnrs = [], []
         dynamic_ssims, dynamic_psnrs, dynamic_depth_rmses = [], [], []
@@ -130,15 +136,6 @@ def evaluate(dataloader, model, args, name_str=None):
                 channel_axis=-1,
             )
             ssim_scores.append(ssim_score)
-            occupied_ssims.append(
-                ssim(
-                    get_numpy(pred_rgb[i]),
-                    get_numpy(gt_rgb[i]),
-                    data_range=1.0,
-                    channel_axis=-1,
-                    full=True,
-                )[1][get_numpy(occupied_mask[i])].mean()
-            )
             psnrs.append(
                 -10
                 * torch.log10(
@@ -148,157 +145,169 @@ def evaluate(dataloader, model, args, name_str=None):
                     )
                 ).item()
             )
-            occupied_psnrs.append(
-                -10
-                * torch.log10(
-                    F.mse_loss(
-                        pred_rgb[i][occupied_mask[i]],
-                        gt_rgb[i][occupied_mask[i]],
-                    )
-                ).item()
-            )
-            depth_rms = torch.sqrt(
-                F.mse_loss(
-                    pred_depth[i][valid_depth_mask[i]],
-                    gt_depth[i][valid_depth_mask[i]],
+            if has_sky_mask:
+                occupied_ssims.append(
+                    ssim(
+                        get_numpy(pred_rgb[i]),
+                        get_numpy(gt_rgb[i]),
+                        data_range=1.0,
+                        channel_axis=-1,
+                        full=True,
+                    )[1][get_numpy(occupied_mask[i])].mean()
                 )
-            ).item()
-            depth_rmses.append(depth_rms)
-            if dynamic_mask[i].sum() == 0:
-                continue
-            dynamic_ssims.append(
-                ssim(
-                    get_numpy(pred_rgb[i]),
-                    get_numpy(gt_rgb[i]),
-                    data_range=1.0,
-                    channel_axis=-1,
-                    full=True,
-                )[1][get_numpy(dynamic_mask[i])].mean()
-            )
-            dynamic_psnrs.append(
-                -10
-                * torch.log10(
+                occupied_psnrs.append(
+                    -10
+                    * torch.log10(
+                        F.mse_loss(
+                            pred_rgb[i][occupied_mask[i]],
+                            gt_rgb[i][occupied_mask[i]],
+                        )
+                    ).item()
+                )
+            if has_depth:
+                depth_rms = torch.sqrt(
                     F.mse_loss(
-                        pred_rgb[i][dynamic_mask[i]],
-                        gt_rgb[i][dynamic_mask[i]],
+                        pred_depth[i][valid_depth_mask[i]],
+                        gt_depth[i][valid_depth_mask[i]],
                     )
                 ).item()
-            )
+                depth_rmses.append(depth_rms)
+            if has_dynamic_mask:
+                if dynamic_mask[i].sum() == 0:
+                    continue
+                dynamic_ssims.append(
+                    ssim(
+                        get_numpy(pred_rgb[i]),
+                        get_numpy(gt_rgb[i]),
+                        data_range=1.0,
+                        channel_axis=-1,
+                        full=True,
+                    )[1][get_numpy(dynamic_mask[i])].mean()
+                )
+                dynamic_psnrs.append(
+                    -10
+                    * torch.log10(
+                        F.mse_loss(
+                            pred_rgb[i][dynamic_mask[i]],
+                            gt_rgb[i][dynamic_mask[i]],
+                        )
+                    ).item()
+                )
 
-            total_dynamic_samples += 1
-            _valid_depth_mask = dynamic_mask[i] & valid_depth_mask[i]
-            if _valid_depth_mask.sum() == 0:
-                continue
-            dynamic_depth_rms = torch.sqrt(
-                F.mse_loss(
-                    pred_depth[i][dynamic_mask[i] & valid_depth_mask[i]],
-                    gt_depth[i][dynamic_mask[i] & valid_depth_mask[i]],
-                )
-            ).item()
-            dynamic_depth_rmses.append(dynamic_depth_rms)
-            total_valid_dynamic_depth_samples += 1
+                total_dynamic_samples += 1
+                if has_depth:
+                    _valid_depth_mask = dynamic_mask[i] & valid_depth_mask[i]
+                    if _valid_depth_mask.sum() == 0:
+                        continue
+                    dynamic_depth_rms = torch.sqrt(
+                        F.mse_loss(
+                            pred_depth[i][_valid_depth_mask],
+                            gt_depth[i][_valid_depth_mask],
+                        )
+                    ).item()
+                    dynamic_depth_rmses.append(dynamic_depth_rms)
+                    total_valid_dynamic_depth_samples += 1
 
         psnr_sum = np.sum(psnrs)
         ssim_sum = np.sum(ssim_scores)
-        depth_rmse_sum = np.sum(depth_rmses)
-        occupied_ssim_sum = np.sum(occupied_ssims)
-        occupied_psnr_sum = np.sum(occupied_psnrs)
-        dynamic_ssim_sum = np.sum(dynamic_ssims)
-        dynamic_psnr_sum = np.sum(dynamic_psnrs)
-        dynamic_depth_rmse_sum = np.sum(dynamic_depth_rmses)
         batch_size = len(gt_rgb)
         # Update running sums and counts
         total_psnr += psnr_sum
         total_ssim += ssim_sum
-        total_depth_rmse += depth_rmse_sum
-        total_occupied_psnr += occupied_psnr_sum
-        total_occupied_ssim += occupied_ssim_sum
-        total_dynamic_psnr += dynamic_psnr_sum
-        total_dynamic_ssim += dynamic_ssim_sum
-        total_dynamic_rmse += dynamic_depth_rmse_sum
         total_samples += batch_size
-        pbar.set_postfix(
-            psnr=psnr_sum / batch_size,
-            ssim=ssim_sum / batch_size,
-            depth_rmse=depth_rmse_sum / batch_size,
-            avg_psnr=total_psnr / total_samples,
-            avg_depth_rmse=total_depth_rmse / total_samples,
-            avg_dynamic_psnr=total_dynamic_psnr / total_dynamic_samples,
-            avg_dynamic_depth_rmse=total_dynamic_rmse / total_valid_dynamic_depth_samples,
-        )
+        if has_depth:
+            total_depth_rmse += np.sum(depth_rmses)
+        if has_sky_mask:
+            total_occupied_psnr += np.sum(occupied_psnrs)
+            total_occupied_ssim += np.sum(occupied_ssims)
+        if has_dynamic_mask:
+            total_dynamic_psnr += np.sum(dynamic_psnrs)
+            total_dynamic_ssim += np.sum(dynamic_ssims)
+            total_dynamic_rmse += np.sum(dynamic_depth_rmses)
+        postfix = {
+            "psnr": psnr_sum / batch_size,
+            "ssim": ssim_sum / batch_size,
+            "avg_psnr": total_psnr / total_samples,
+        }
+        if has_depth:
+            postfix["avg_depth_rmse"] = total_depth_rmse / total_samples
+        if has_dynamic_mask and total_dynamic_samples > 0:
+            postfix["avg_dynamic_psnr"] = total_dynamic_psnr / total_dynamic_samples
+        pbar.set_postfix(**postfix)
 
     # Create tensors for sums and counts
     total_psnr_tensor = torch.tensor(total_psnr, device=device)
     total_ssim_tensor = torch.tensor(total_ssim, device=device)
-    total_depth_rmse_tensor = torch.tensor(total_depth_rmse, device=device)
-    total_occupied_psnr_tensor = torch.tensor(total_occupied_psnr, device=device)
-    total_occupied_ssim_tensor = torch.tensor(total_occupied_ssim, device=device)
-    total_dynamic_psnr_tensor = torch.tensor(total_dynamic_psnr, device=device)
-    total_dynamic_ssim_tensor = torch.tensor(total_dynamic_ssim, device=device)
-    total_dynamic_rmse_tensor = torch.tensor(total_dynamic_rmse, device=device)
     total_samples_tensor = torch.tensor(total_samples, device=device)
-    total_dynamic_samples_tensor = torch.tensor(total_dynamic_samples, device=device)
-    total_valid_dynamic_depth_samples_tensor = torch.tensor(
-        total_valid_dynamic_depth_samples, device=device
-    )
+
+    tensors_to_reduce = [total_psnr_tensor, total_ssim_tensor, total_samples_tensor]
+    if has_depth:
+        total_depth_rmse_tensor = torch.tensor(total_depth_rmse, device=device)
+        tensors_to_reduce.append(total_depth_rmse_tensor)
+    if has_sky_mask:
+        total_occupied_psnr_tensor = torch.tensor(total_occupied_psnr, device=device)
+        total_occupied_ssim_tensor = torch.tensor(total_occupied_ssim, device=device)
+        tensors_to_reduce.extend([total_occupied_psnr_tensor, total_occupied_ssim_tensor])
+    if has_dynamic_mask:
+        total_dynamic_psnr_tensor = torch.tensor(total_dynamic_psnr, device=device)
+        total_dynamic_ssim_tensor = torch.tensor(total_dynamic_ssim, device=device)
+        total_dynamic_rmse_tensor = torch.tensor(total_dynamic_rmse, device=device)
+        total_dynamic_samples_tensor = torch.tensor(total_dynamic_samples, device=device)
+        total_valid_dynamic_depth_samples_tensor = torch.tensor(
+            total_valid_dynamic_depth_samples, device=device
+        )
+        tensors_to_reduce.extend([
+            total_dynamic_psnr_tensor, total_dynamic_ssim_tensor, total_dynamic_rmse_tensor,
+            total_dynamic_samples_tensor, total_valid_dynamic_depth_samples_tensor,
+        ])
 
     torch.cuda.synchronize()
 
     if distributed.is_enabled():
-        # Aggregate sums across all processes
-        torch.distributed.all_reduce(total_psnr_tensor)
-        torch.distributed.all_reduce(total_ssim_tensor)
-        torch.distributed.all_reduce(total_depth_rmse_tensor)
-        torch.distributed.all_reduce(total_occupied_psnr_tensor)
-        torch.distributed.all_reduce(total_occupied_ssim_tensor)
-        torch.distributed.all_reduce(total_dynamic_psnr_tensor)
-        torch.distributed.all_reduce(total_dynamic_ssim_tensor)
-        torch.distributed.all_reduce(total_dynamic_rmse_tensor)
-        torch.distributed.all_reduce(total_samples_tensor)
-        torch.distributed.all_reduce(total_dynamic_samples_tensor)
-        torch.distributed.all_reduce(total_valid_dynamic_depth_samples_tensor)
+        for t in tensors_to_reduce:
+            torch.distributed.all_reduce(t)
     result = None
     if distributed.is_main_process():
         avg_psnr = total_psnr_tensor.item() / total_samples_tensor.item()
         avg_ssim = total_ssim_tensor.item() / total_samples_tensor.item()
-        avg_depth_rmse = total_depth_rmse_tensor.item() / total_samples_tensor.item()
-        avg_occupied_psnr = total_occupied_psnr_tensor.item() / total_samples_tensor.item()
-        avg_occupied_ssim = total_occupied_ssim_tensor.item() / total_samples_tensor.item()
-        avg_dynamic_psnr = total_dynamic_psnr_tensor.item() / total_dynamic_samples_tensor.item()
-        avg_dynamic_ssim = total_dynamic_ssim_tensor.item() / total_dynamic_samples_tensor.item()
-        avg_dynamic_rmse = (
-            total_dynamic_rmse_tensor.item() / total_valid_dynamic_depth_samples_tensor.item()
-        )
+
+        result = {"psnr": avg_psnr, "ssim": avg_ssim}
+        lines = [
+            f"Average PSNR: {avg_psnr:.4f}",
+            f"Average SSIM: {avg_ssim:.4f}",
+        ]
+
+        if has_depth:
+            avg_depth_rmse = total_depth_rmse_tensor.item() / total_samples_tensor.item()
+            result["depth_rmse"] = avg_depth_rmse
+            lines.append(f"Average Depth RMSE: {avg_depth_rmse:.4f}")
+        if has_sky_mask:
+            avg_occupied_psnr = total_occupied_psnr_tensor.item() / total_samples_tensor.item()
+            avg_occupied_ssim = total_occupied_ssim_tensor.item() / total_samples_tensor.item()
+            result["occupied_psnr"] = avg_occupied_psnr
+            result["occupied_ssim"] = avg_occupied_ssim
+            lines.append(f"Average Occupied PSNR: {avg_occupied_psnr:.4f}")
+            lines.append(f"Average Occupied SSIM: {avg_occupied_ssim:.4f}")
+        if has_dynamic_mask and total_dynamic_samples_tensor.item() > 0:
+            avg_dynamic_psnr = total_dynamic_psnr_tensor.item() / total_dynamic_samples_tensor.item()
+            avg_dynamic_ssim = total_dynamic_ssim_tensor.item() / total_dynamic_samples_tensor.item()
+            result["dynamic_psnr"] = avg_dynamic_psnr
+            result["dynamic_ssim"] = avg_dynamic_ssim
+            lines.append(f"Average Dynamic PSNR: {avg_dynamic_psnr:.4f}")
+            lines.append(f"Average Dynamic SSIM: {avg_dynamic_ssim:.4f}")
+            if total_valid_dynamic_depth_samples_tensor.item() > 0:
+                avg_dynamic_rmse = (
+                    total_dynamic_rmse_tensor.item() / total_valid_dynamic_depth_samples_tensor.item()
+                )
+                result["dynamic_depth_rmse"] = avg_dynamic_rmse
+                lines.append(f"Average Dynamic Depth RMSE: {avg_dynamic_rmse:.4f}")
+
         with open(os.path.join(eval_result_dir, f"eval_{name_str}.txt"), "w") as f:
-            f.write(f"Average PSNR: {avg_psnr:.4f}\n")
-            f.write(f"Average SSIM: {avg_ssim:.4f}\n")
-            f.write(f"Average Depth RMSE: {avg_depth_rmse:.4f}\n")
-            f.write(f"Average Occupied PSNR: {avg_occupied_psnr:.4f}\n")
-            f.write(f"Average Occupied SSIM: {avg_occupied_ssim:.4f}\n")
-            f.write(f"Average Dynamic PSNR: {avg_dynamic_psnr:.4f}\n")
-            f.write(f"Average Dynamic SSIM: {avg_dynamic_ssim:.4f}\n")
-            f.write(f"Average Dynamic Depth RMSE: {avg_dynamic_rmse:.4f}\n")
+            f.write("\n".join(lines) + "\n")
         logger.info("Evaluation results saved.")
         logger.info(f"Evaluated on {total_samples_tensor.item()} samples.")
-        logger.info(
-            f"Average PSNR: {avg_psnr:.4f}, Average SSIM: {avg_ssim:.4f}, Average Depth RMSE: {avg_depth_rmse:.4f}"
-        )
-        logger.info(
-            f"Average Occupied PSNR: {avg_occupied_psnr:.4f}, Average Occupied SSIM: {avg_occupied_ssim:.4f}"
-        )
-        logger.info(
-            f"Average Dynamic PSNR: {avg_dynamic_psnr:.4f}, Average Dynamic SSIM: {avg_dynamic_ssim:.4f}, Average Dynamic Depth RMSE: {avg_dynamic_rmse:.4f}"
-        )
-        result = {
-            "psnr": avg_psnr,
-            "ssim": avg_ssim,
-            "depth_rmse": avg_depth_rmse,
-            "occupied_psnr": avg_occupied_psnr,
-            "occupied_ssim": avg_occupied_ssim,
-            "dynamic_psnr": avg_dynamic_psnr,
-            "dynamic_ssim": avg_dynamic_ssim,
-            "dynamic_depth_rmse": avg_dynamic_rmse,
-        }
+        for line in lines:
+            logger.info(line)
     torch.cuda.empty_cache()
     return result
 

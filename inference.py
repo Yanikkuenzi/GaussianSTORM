@@ -16,6 +16,7 @@ import storm.models as models
 import storm.utils.misc as misc
 from storm.dataset.constants import DATASET_DICT
 from storm.dataset.data_utils import to_batch_tensor
+from storm.dataset.egoexo_dataset import EgoExoDatasetEval
 from storm.dataset.storm_dataset import SingleSequenceDataset
 from storm.utils.logging import setup_logging
 from storm.visualization.video_maker import make_video
@@ -62,6 +63,11 @@ def get_args_parser():
     parser.add_argument("--load_flow", action="store_true")
     parser.add_argument("--dataset", default="waymo", type=str, choices=DATASET_DICT.keys())
     parser.add_argument("--skip_sky_mask", action="store_true", help="skip sky mask loading")
+    # EgoExo4D-specific
+    parser.add_argument("--egoexo_image_root", type=str, default=None,
+                        help="Path to EgoExo4D images: <root>/<scene>/<cam>/frame_*.png")
+    parser.add_argument("--egoexo_annotation_root", type=str, default=None,
+                        help="Path to EgoExo4D annotations: <root>/takes/<scene>/trajectory/gopro_calib.csv")
     # ============= Logging ============= #
     parser.add_argument("--output_dir", default="./work_dirs")
     parser.add_argument("--num_vis_samples", type=int, default=1)
@@ -143,38 +149,68 @@ def main(args):
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"{args.model} Parameters: {n_params / 1e6:.2f}M ({n_params:,})")
     model.to(device)
-    dataset = SingleSequenceDataset(
-        data_root=args.data_root,
-        annotation_txt_file_list=train_annotation,
-        target_size=input_size,
-        num_context_timesteps=num_context_timesteps,
-        num_target_timesteps=num_target_timesteps,
-        timespan=args.timespan,
-        num_max_cams=args.num_max_cameras,
-        load_depth=args.load_depth,
-        load_flow=args.load_flow,
-    )
 
-    logger.info(f"Dataset contains {len(dataset):,} sequences using {train_annotation}.")
+    if args.dataset == "egoexo":
+        annotation_file = train_annotation if train_annotation is not None else val_annotation
+        dataset = EgoExoDatasetEval(
+            image_root=args.egoexo_image_root,
+            annotation_root=args.egoexo_annotation_root,
+            scene_names_file=annotation_file,
+            target_size=input_size,
+            num_context_timesteps=num_context_timesteps,
+            num_target_timesteps=num_target_timesteps,
+            num_max_cams=args.num_max_cameras,
+            timespan=args.timespan,
+        )
+    else:
+        dataset = SingleSequenceDataset(
+            data_root=args.data_root,
+            annotation_txt_file_list=train_annotation,
+            target_size=input_size,
+            num_context_timesteps=num_context_timesteps,
+            num_target_timesteps=num_target_timesteps,
+            timespan=args.timespan,
+            num_max_cams=args.num_max_cameras,
+            load_depth=args.load_depth,
+            load_flow=args.load_flow,
+        )
+
+    logger.info(f"Dataset contains {len(dataset):,} sequences/samples using {train_annotation}.")
     misc.load_model(args, model)
     num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"{args.model} Trainable Parameters: {num_trainable_params / 1e6:.2f}M")
     model.eval().cuda()
     logger.info(f"Preparing data... (This may take a while)")
-    data_dict_list = dataset.__getitem__(index=0, start_index=0, end_index=60)
-    data_dict_list = to_batch_tensor(data_dict_list)
-    logger.info(f"Done preparing data.")
-    for i in range(len(data_dict_list)):
-        data_dict = data_dict_list[i]
-        output_name = f"test_{i}.mp4"
-        make_video(
-            dataset=None,
-            model=model,
-            device=device,
-            output_filename=output_name,
-            data_dict=data_dict,
-        )
-        print(f"Saved video to {output_name}")
+
+    if args.dataset == "egoexo":
+        num_samples = min(len(dataset), args.num_vis_samples)
+        for i in range(num_samples):
+            data_dict = dataset[i]
+            data_dict = to_batch_tensor(data_dict)
+            output_name = f"test_{i}.mp4"
+            make_video(
+                dataset=None,
+                model=model,
+                device=device,
+                output_filename=output_name,
+                data_dict=data_dict,
+            )
+            print(f"Saved video to {output_name}")
+    else:
+        data_dict_list = dataset.__getitem__(index=0, start_index=0, end_index=60)
+        data_dict_list = to_batch_tensor(data_dict_list)
+        logger.info(f"Done preparing data.")
+        for i in range(len(data_dict_list)):
+            data_dict = data_dict_list[i]
+            output_name = f"test_{i}.mp4"
+            make_video(
+                dataset=None,
+                model=model,
+                device=device,
+                output_filename=output_name,
+                data_dict=data_dict,
+            )
+            print(f"Saved video to {output_name}")
 
 
 if __name__ == "__main__":
