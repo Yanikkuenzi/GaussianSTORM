@@ -3,7 +3,7 @@
     "editor.formatOnSave": true,
     // Draw a ruler at Black's column width.
     "editor.rulers": [
-        100,
+        80,
     ],
     // Hide non-code files.
     "files.exclude": {

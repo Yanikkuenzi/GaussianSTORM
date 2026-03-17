@@ -215,7 +215,7 @@ class WandbLogger:
         )
         self.run_id = wandb.run.id
         self.step = 0
-        wandb.run.save()
+        # wandb.run.save()
 
     @staticmethod
     def wandb_safe_log(*args, **kwargs):

@@ -120,7 +120,7 @@ def get_args_parser():
     parser.add_argument("--ckpt_every_n_iters", type=int, default=5000)
     parser.add_argument("--eval_every_n_iters", type=int, default=50000)
     parser.add_argument("--total_elapsed_time", type=float, default=0.0, help="total time elapsed")
-    parser.add_argument("--keep_n_ckpts", default=1, type=int)
+    parser.add_argument("--keep_n_ckpts", default=5, type=int)
 
     # ============= Miscellaneous ============= #
     parser.add_argument("--seed", default=1, type=int)
@@ -131,7 +131,7 @@ def get_args_parser():
     # ============= WandB ============= #
     parser.add_argument("--enable_wandb", action="store_true")
     parser.add_argument("--project", default="debug", type=str)
-    parser.add_argument("--entity", default="YOUR_ENTITY", type=str)
+    parser.add_argument("--entity", default="ykuenzi", type=str)
     parser.add_argument("--exp_name", default=None, type=str)
     parser.add_argument("--overwrite_wandb", action="store_true")
 

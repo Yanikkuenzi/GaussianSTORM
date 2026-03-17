@@ -1,0 +1,57 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main_storm.py",
+            "args": "--project storm_training --egoexo_image_root /iopsstor/scratch/cscs/mbalice/egoexo_processed --egoexo_annotation_root /capstor/store/cscs/swissai/a144/datasets/egoexo4d --data_root /iopsstor/scratch/cscs/mbalice/egoexo_processed --dataset egoexo --exp_name 0504_pixel_storm  --batch_size 4 --num_iterations 100000 --lr_sched constant  --model STORM-B/8 --num_motion_tokens 16  --load_depth --load_flow --load_ground  --enable_depth_loss --enable_flow_reg_loss --flow_reg_coeff 0.005 --enable_sky_opacity_loss  --enable_perceptual_loss --perceptual_loss_start_iter 5000  --enable_wandb  --auto_resume --load_from /iopsstor/scratch/cscs/yknzi/GaussianSTORM/work_dirs/storm_training/0504_pixel_storm/checkpoints/latest.pth",
+            "python": "/iopsstor/scratch/cscs/yknzi/anysplat/venv-anysplat-new/bin/python",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "preLaunchTask": "Load Modules",
+        },
+        {
+            "name": "Inference",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/inference.py",
+            // "args": "--project storm_inference --egoexo_image_root /iopsstor/scratch/cscs/mbalice/egoexo_processed --data_root /iopsstor/scratch/cscs/mbalice/egoexo_processed --egoexo_annotation_root /capstor/store/cscs/swissai/a144/datasets/egoexo4d --dataset egoexo --exp_name visualization --model STORM-B/8 --num_motion_tokens 16 --load_from /iopsstor/scratch/cscs/yknzi/GaussianSTORM/work_dirs/storm_training/0504_pixel_storm/checkpoints/latest.pth",
+            "args": [
+                "--project",
+                "storm_inference",
+                "--egoexo_image_root",
+                "/iopsstor/scratch/cscs/mbalice/egoexo_processed",
+                "--data_root",
+                "/iopsstor/scratch/cscs/mbalice/egoexo_processed",
+                "--egoexo_annotation_root",
+                "/capstor/store/cscs/swissai/a144/datasets/egoexo4d",
+                "--dataset",
+                "egoexo",
+                "--exp_name",
+                "visualization",
+                "--model",
+                "STORM-B/8",
+                "--num_motion_tokens",
+                "16",
+                "--load_from",
+                "/iopsstor/scratch/cscs/yknzi/GaussianSTORM/work_dirs/storm_training/0504_pixel_storm/checkpoints/latest.pth",
+            ],
+            "python": "/iopsstor/scratch/cscs/yknzi/anysplat/venv-anysplat-new/bin/python",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        },
+    ],
+    "inputs": [
+        {
+            "id": "frame_dist",
+            "type": "promptString",
+            "description": "Inference frame distance",
+            "default": "1",
+        }
+    ]
+}

@@ -1,0 +1,14 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Load Modules",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "-c",
+                "if [ ! -f \"/users/yknzi/.netrc\" ]; then ln -s /iopsstor/scratch/cscs/yknzi/anysplat/.netrc /users/yknzi/.netrc; fi; export PYTHONUTF8=1; export LC_ALL=C.UTF-8;"
+            ]
+        }
+    ]
+}

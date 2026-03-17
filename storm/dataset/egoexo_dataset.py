@@ -170,7 +170,7 @@ class EgoExoDataset(STORMDataset):
         self.annotations = []
         for scene_id, scene_name in enumerate(scene_names):
             csv_path = os.path.join(
-                annotation_root, "takes", scene_name, "trajectory", "gopro_calib.csv"
+                annotation_root, "takes", scene_name, "trajectory", "gopro_calibs.csv"
             )
             calib = parse_gopro_calib(csv_path)
             num_frames = count_frames(image_root, scene_name)

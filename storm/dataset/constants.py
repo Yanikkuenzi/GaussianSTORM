@@ -107,8 +107,8 @@ DATASET_DICT = {
         "temporal": True,
         "num_context_timesteps": 4,
         "num_target_timesteps": 4,
-        "annotation_txt_file_train": "scene_list/egoexo_train.txt",
-        "annotation_txt_file_val": "scene_list/egoexo_val.txt",
+        "annotation_txt_file_train": "sequences_train.txt",
+        "annotation_txt_file_val": "sequences_val.txt",
         "camera_list": {
             1: ["cam01"],
             3: ["cam02", "cam01", "cam03"],
