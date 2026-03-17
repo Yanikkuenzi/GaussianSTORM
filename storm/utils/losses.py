@@ -38,6 +38,71 @@ def compute_depth_loss(pred_depth, gt_depth, max_depth=None):
     return F.l1_loss(pred_depth, gt_depth)
 
 
+def compute_scale_invariant_depth_loss(pred_depth, gt_depth):
+    """Scale-and-shift invariant depth loss for relative pseudo-GT depth (e.g. Depth Anything V2).
+
+    Computes per-image least-squares alignment (scale + shift), then L1 loss.
+    """
+    pred_depth = pred_depth.squeeze()
+    gt_depth = gt_depth.squeeze()
+
+    if pred_depth.shape != gt_depth.shape:
+        # Resize pred to match gt
+        orig_shape = pred_depth.shape
+        if pred_depth.dim() == 4:
+            b, v, h, w = pred_depth.shape
+            gt_h, gt_w = gt_depth.shape[-2:]
+            pred_depth = F.interpolate(
+                rearrange(pred_depth, "b v h w -> (b v) 1 h w"),
+                size=(gt_h, gt_w), mode="bilinear", align_corners=False,
+            )
+            pred_depth = rearrange(pred_depth, "(b v) 1 h w -> b v h w", b=b, v=v)
+        else:
+            b, t, v, h, w = pred_depth.shape
+            gt_h, gt_w = gt_depth.shape[-2:]
+            pred_depth = F.interpolate(
+                rearrange(pred_depth, "b t v h w -> (b t v) 1 h w"),
+                size=(gt_h, gt_w), mode="bilinear", align_corners=False,
+            )
+            pred_depth = rearrange(pred_depth, "(b t v) 1 h w -> b t v h w", b=b, t=t, v=v)
+
+    # Flatten to per-image: (N_images, H*W)
+    leading = pred_depth.shape[:-2]
+    n_images = 1
+    for s in leading:
+        n_images *= s
+    pred_flat = pred_depth.reshape(n_images, -1)
+    gt_flat = gt_depth.reshape(n_images, -1)
+
+    total_loss = torch.tensor(0.0, device=pred_depth.device)
+    count = 0
+
+    for i in range(n_images):
+        valid = gt_flat[i] > 1e-6
+        if valid.sum() < 10:
+            continue
+
+        p = pred_flat[i][valid]
+        g = gt_flat[i][valid]
+
+        # Least-squares: find s, t such that s * pred + t ≈ gt
+        A = torch.stack([p, torch.ones_like(p)], dim=-1)  # (N, 2)
+        result = torch.linalg.lstsq(A, g.unsqueeze(-1))
+        s, t = result.solution[0, 0].detach(), result.solution[1, 0].detach()
+
+        # Skip degenerate cases
+        if s <= 0:
+            continue
+
+        aligned = s * p + t
+        total_loss = total_loss + F.l1_loss(aligned, g)
+        count += 1
+
+    if count == 0:
+        return torch.tensor(0.0, device=pred_depth.device, requires_grad=True)
+    return total_loss / count
+
+
 def compute_sky_depth_loss(pred_depth, gt_sky_mask, sky_depth: float = 1e3, flow=None):
     pred_depth = pred_depth.squeeze()
     gt_sky_mask = gt_sky_mask.squeeze()
@@ -89,12 +154,17 @@ def compute_loss(output_dict, target_dict, args=None, lpips_loss=None):
 
     if args.enable_depth_loss and "target_depth" in target_dict:
         pred_depth, target_depth = pred_dict[pred_dict["depth_key"]], target_dict["target_depth"]
-        depth_loss = compute_depth_loss(pred_depth, target_depth)
+        depth_loss_fn = (
+            compute_scale_invariant_depth_loss
+            if getattr(args, "scale_invariant_depth_loss", False)
+            else compute_depth_loss
+        )
+        depth_loss = depth_loss_fn(pred_depth, target_depth)
         loss_dict["depth_loss"] = depth_loss
 
         if pred_dict["decoder_depth_key"] is not None:
             pred_decoder_depth = pred_dict[pred_dict["decoder_depth_key"]]
-            decoded_depth_loss = compute_depth_loss(pred_decoder_depth, target_depth)
+            decoded_depth_loss = depth_loss_fn(pred_decoder_depth, target_depth)
             loss_dict["decoded_depth_loss"] = decoded_depth_loss
             if (
                 args.enable_sky_depth_loss or args.enable_sky_opacity_loss

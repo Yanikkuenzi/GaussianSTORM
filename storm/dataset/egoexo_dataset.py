@@ -12,7 +12,7 @@ from scipy.spatial.transform import Rotation as R
 from torch.utils.data import Dataset
 
 from .constants import DATASET_DICT, DATASETS, MEAN, STD
-from .data_utils import to_float_tensor, to_tensor
+from .data_utils import resize_depth, to_float_tensor, to_tensor
 from .storm_dataset import STORMDataset, STORMDatasetEval
 
 logger = logging.getLogger("STORM")
@@ -134,6 +134,8 @@ class EgoExoDataset(STORMDataset):
         equispaced: bool = True,
         return_context_as_target: bool = False,
         fps: int = 30,
+        load_depth: bool = False,
+        depth_root: Optional[str] = None,
     ):
         # Skip STORMDataset.__init__ — we build annotations from CSVs, not JSONs
         Dataset.__init__(self)
@@ -150,7 +152,8 @@ class EgoExoDataset(STORMDataset):
         self.fps = fps
 
         # Not used for EgoExo, but set for compatibility with inherited __getitem__
-        self.load_depth = False
+        self.load_depth = load_depth
+        self.depth_root = depth_root
         self.load_flow = False
         self.load_dynamic_mask = False
         self.load_ground_label = False
@@ -202,7 +205,7 @@ class EgoExoDataset(STORMDataset):
         dataset_name = scene_json["dataset"]
         cam_to_world = scene_json["camera_to_world"]
 
-        images, camtoworlds, intrinsics = [], [], []
+        images, camtoworlds, intrinsics, depths = [], [], [], []
 
         if source_frame_idx < 0:
             source_frame_idx = frame_idx
@@ -218,6 +221,15 @@ class EgoExoDataset(STORMDataset):
             img = Image.open(img_path).convert("RGB")
             img = self.img_transformation(img)
             images.append(img)
+
+            # Load pseudo-GT depth if available
+            if self.load_depth and self.depth_root is not None:
+                depth_relative_path = os.path.splitext(img_relative_path)[0] + ".npy"
+                depth_path = os.path.join(self.depth_root, depth_relative_path)
+                depth = np.load(depth_path)
+                depth = torch.tensor(depth).float()
+                depth = resize_depth(depth, self.target_size)
+                depths.append(depth)
 
             # Camera-to-world (same transform chain as other datasets)
             camtoworld = (
@@ -251,6 +263,8 @@ class EgoExoDataset(STORMDataset):
             "intrinsics": torch.stack(intrinsics),
             "frame_idx": frame_idx,
         }
+        if len(depths) > 0:
+            data_dict["depth"] = torch.stack(depths)
         return data_dict
 
 
@@ -272,6 +286,8 @@ class EgoExoDatasetEval(EgoExoDataset):
         equispaced: bool = True,
         return_context_as_target: bool = False,
         fps: int = 30,
+        load_depth: bool = False,
+        depth_root: Optional[str] = None,
         scene_id_list: Optional[List[int]] = None,
         eval_stride: int = 20,
     ):
@@ -289,6 +305,8 @@ class EgoExoDatasetEval(EgoExoDataset):
             equispaced=equispaced,
             return_context_as_target=return_context_as_target,
             fps=fps,
+            load_depth=load_depth,
+            depth_root=depth_root,
         )
         # Build deterministic evaluation samples
         val_sample_list = []

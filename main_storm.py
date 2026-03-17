@@ -56,6 +56,10 @@ def get_args_parser():
 
     # =============== Losses =============== #
     parser.add_argument("--enable_depth_loss", action="store_true")
+    parser.add_argument("--scale_invariant_depth_loss", action="store_true",
+                        help="Use scale-invariant depth loss for relative pseudo-GT depth")
+    parser.add_argument("--depth_root", type=str, default=None,
+                        help="Root directory for pseudo-GT depth maps (EgoExo)")
 
     # Option 1: push the sky depth to a fixed value
     parser.add_argument("--enable_sky_depth_loss", action="store_true")
@@ -202,6 +206,8 @@ def main(args):
             num_target_timesteps=args.num_target_timesteps,
             num_max_cams=args.num_max_cameras,
             timespan=args.timespan,
+            load_depth=args.load_depth,
+            depth_root=args.depth_root,
         )
     else:
         dataset_train = STORMDataset(
@@ -238,6 +244,8 @@ def main(args):
                 num_target_timesteps=args.num_target_timesteps,
                 num_max_cams=args.num_max_cameras,
                 timespan=args.timespan,
+                load_depth=args.load_depth,
+                depth_root=args.depth_root,
             )
             dataset_eval = EgoExoDatasetEval(
                 image_root=args.egoexo_image_root,
@@ -248,6 +256,8 @@ def main(args):
                 num_target_timesteps=args.num_target_timesteps,
                 num_max_cams=args.num_max_cameras,
                 timespan=args.timespan,
+                load_depth=args.load_depth,
+                depth_root=args.depth_root,
             )
             dataset_eval_flow = EgoExoDatasetEval(
                 image_root=args.egoexo_image_root,
@@ -259,6 +269,8 @@ def main(args):
                 num_max_cams=args.num_max_cameras,
                 timespan=args.timespan,
                 return_context_as_target=True,
+                load_depth=args.load_depth,
+                depth_root=args.depth_root,
             )
         else:
             dataset_val = STORMDataset(
