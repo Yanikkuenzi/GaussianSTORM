@@ -321,7 +321,7 @@ class EgoExoDatasetEval(EgoExoDataset):
     def __len__(self) -> int:
         return len(self.val_sample_list)
 
-    def __getitem__(self, index: int):
+    def __getitem__(self, index: int, context_frame_idx: int = -1, return_all=False):
         return super(EgoExoDatasetEval, self).__getitem__(
             self.val_sample_list[index][0],
             self.val_sample_list[index][1],
