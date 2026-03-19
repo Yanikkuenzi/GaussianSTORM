@@ -17,7 +17,7 @@ from storm.dataset.data_utils import (
 
 from .annotation import add_label
 from .layout import add_border, hcat, prep_image, vcat
-from .visualization_tools import depth_visualizer, scene_flow_to_rgb
+from .visualization_tools import depth_visualizer, scene_flow_to_rgb, visualize_depth
 
 logger = logging.getLogger("STORM")
 
@@ -230,7 +230,8 @@ def make_video(
         if "target_depth" in target_dict.keys():
             gt_depth = target_dict["target_depth"][0][t]
             gt_depth = gt_depth.detach().cpu().numpy()
-            gt_depth = depth_visualizer(gt_depth, gt_depth > 0)
+            # Use auto-bounds for GT depth (may be non-metric, e.g. DA V2)
+            gt_depth = visualize_depth(gt_depth, gt_depth > 0, lo=None, hi=None)
             gt_depth = torch.from_numpy(gt_depth)
             gt_depth = rearrange(gt_depth, "v h w c -> v c h w")
             gt_depth = add_label(
@@ -825,7 +826,8 @@ def make_video_av2(
         if "target_depth" in target_dict.keys():
             gt_depth = target_dict["target_depth"][0][t]
             gt_depth = gt_depth.detach().cpu().numpy()
-            gt_depth = depth_visualizer(gt_depth, gt_depth > 0)
+            # Use auto-bounds for GT depth (may be non-metric, e.g. DA V2)
+            gt_depth = visualize_depth(gt_depth, gt_depth > 0, lo=None, hi=None)
             gt_depth = torch.from_numpy(gt_depth)
             gt_depth = rearrange(gt_depth, "v h w c -> v c h w")
             gt_depth = add_label(

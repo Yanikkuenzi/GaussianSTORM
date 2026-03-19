@@ -19,8 +19,8 @@ turbo_cmap = cm.get_cmap("turbo")
 depth_visualizer = lambda frame, opacity: visualize_depth(
     frame,
     opacity,
-    lo=None,
-    hi=None,
+    lo=4.0,
+    hi=120,
     depth_curve_fn=lambda x: -np.log(x + 1e-6),
 )
 
