@@ -62,22 +62,40 @@ def parse_gopro_calib(csv_path: str, camera_list: List[str] = EGOEXO_CAMERA_LIST
     return calib
 
 
-def count_frames(image_root: str, scene_name: str, ref_camera: str = "cam01") -> int:
-    """Count the number of frames for a scene by listing files in the reference camera directory."""
-    pattern = os.path.join(image_root, scene_name, ref_camera, "frame_*.png")
-    return len(glob.glob(pattern))
+def get_valid_frame_indices(
+    image_root: str, scene_name: str, camera_list: List[str]
+) -> List[int]:
+    """Get sorted frame indices that exist for ALL cameras."""
+    per_cam_indices = []
+    for cam in camera_list:
+        pattern = os.path.join(image_root, scene_name, cam, "frame_*.png")
+        files = glob.glob(pattern)
+        indices = set()
+        for f in files:
+            # Extract index from frame_XXXXXX.png
+            basename = os.path.splitext(os.path.basename(f))[0]
+            idx = int(basename.split("_")[1])
+            indices.add(idx)
+        per_cam_indices.append(indices)
+    if not per_cam_indices:
+        return []
+    valid = per_cam_indices[0]
+    for s in per_cam_indices[1:]:
+        valid = valid & s
+    return sorted(valid)
 
 
 def build_annotation(
     scene_id: int,
     scene_name: str,
     calib: Dict[str, Any],
-    num_frames: int,
+    frame_indices: List[int],
     image_root: str,
     fps: int = 30,
 ) -> Dict[str, Any]:
     """Build an annotation dict matching the GaussianSTORM JSON format."""
     camera_list = [cam for cam in EGOEXO_CAMERA_LIST if cam in calib]
+    num_frames = len(frame_indices)
 
     annotation = {
         "dataset": "egoexo",
@@ -86,7 +104,7 @@ def build_annotation(
         "num_timesteps": num_frames,
         "fps": fps,
         "camera_list": camera_list,
-        "normalized_time": [t / fps for t in range(num_frames)],
+        "normalized_time": [t / fps for t in frame_indices],
         "normalized_intrinsics": {},
         "camera_to_world": {},
         "camera_to_ego": {},
@@ -106,7 +124,7 @@ def build_annotation(
         annotation["original_image_size"][cam] = [H, W]
         annotation["relative_image_path"][cam] = [
             os.path.join(scene_name, cam, f"frame_{t:06d}.png")
-            for t in range(num_frames)
+            for t in frame_indices
         ]
 
     return annotation
@@ -173,11 +191,13 @@ class EgoExoDataset(STORMDataset):
                 annotation_root, "takes", scene_name, "trajectory", "gopro_calibs.csv"
             )
             calib = parse_gopro_calib(csv_path)
-            num_frames = count_frames(image_root, scene_name)
-            if num_frames == 0:
+            frame_indices = get_valid_frame_indices(
+                image_root, scene_name, list(calib.keys())
+            )
+            if len(frame_indices) == 0:
                 logger.warning(f"Skipping scene {scene_name}: no frames found")
                 continue
-            annotation = build_annotation(scene_id, scene_name, calib, num_frames, image_root, fps)
+            annotation = build_annotation(scene_id, scene_name, calib, frame_indices, image_root, fps)
             self.annotations.append(annotation)
 
         logger.info(f"Loaded {len(self.annotations)} EgoExo4D scenes.")
