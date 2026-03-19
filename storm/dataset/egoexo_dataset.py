@@ -226,7 +226,11 @@ class EgoExoDataset(STORMDataset):
             if self.load_depth and self.depth_root is not None:
                 depth_relative_path = os.path.splitext(img_relative_path)[0] + ".npy"
                 depth_path = os.path.join(self.depth_root, depth_relative_path)
-                depth = np.load(depth_path)
+                disp = np.load(depth_path)
+                # DA V2 outputs disparity (higher = closer), invert to depth
+                depth = np.zeros_like(disp)
+                valid = disp > 1e-6
+                depth[valid] = 1.0 / disp[valid]
                 depth = torch.tensor(depth).float()
                 depth = resize_depth(depth, self.target_size)
                 depths.append(depth)
