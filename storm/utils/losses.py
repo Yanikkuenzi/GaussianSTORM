@@ -90,10 +90,6 @@ def compute_scale_invariant_depth_loss(pred_depth, gt_depth):
         result = torch.linalg.lstsq(A, g.unsqueeze(-1))
         s, t = result.solution[0, 0].detach(), result.solution[1, 0].detach()
 
-        # Skip degenerate cases
-        if s <= 0:
-            continue
-
         aligned = s * p + t
         total_loss = total_loss + F.l1_loss(aligned, g)
         count += 1
